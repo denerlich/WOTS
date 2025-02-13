@@ -11,6 +11,12 @@ import asyncio
 import nest_asyncio
 import logging
 
+def to_number(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return np.nan
+
 # === Consolidated Logging Configuration ===
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -466,32 +472,37 @@ def get_icon(detail):
 
 def final_verdict(fund, tech, extra, opts, thresholds):
     verdict = []
-    if fund.get("Debt-to-Equity Ratio", np.nan) <= thresholds["Debt-to-Equity"]:
+    if to_number(fund.get("Debt-to-Equity Ratio", np.nan)) <= thresholds["Debt-to-Equity"]:
         verdict.append("Debt-to-Equity OK")
     else:
         verdict.append("High Debt-to-Equity")
-    if fund.get("Current Ratio", 0) >= thresholds["Current Ratio"]:
+    
+    if to_number(fund.get("Current Ratio", 0)) >= thresholds["Current Ratio"]:
         verdict.append("Current Ratio OK")
     else:
         verdict.append("Weak Liquidity")
-    if fund.get("Free Cash Flow", 0) > 0:
+    
+    if to_number(fund.get("Free Cash Flow", 0)) > 0:
         verdict.append("Positive Free Cash Flow")
     else:
         verdict.append("Negative Free Cash Flow")
-    if fund.get("Revenue Growth (%)", 0) >= thresholds["Revenue Growth"]:
+    
+    if to_number(fund.get("Revenue Growth (%)", 0)) >= thresholds["Revenue Growth"]:
         verdict.append("Strong Revenue Growth")
     else:
         verdict.append("Weak Revenue Growth")
-    if fund.get("Return on Equity (%)", 0) >= thresholds["ROE"]:
+    
+    if to_number(fund.get("Return on Equity (%)", 0)) >= thresholds["ROE"]:
         verdict.append("Good ROE")
     else:
         verdict.append("Low ROE")
     
-    if tech.get("RSI", 0) >= thresholds["RSI_low"] and tech.get("RSI", 0) <= thresholds["RSI_high"]:
+    if to_number(tech.get("RSI", 0)) >= thresholds["RSI_low"] and to_number(tech.get("RSI", 0)) <= thresholds["RSI_high"]:
         verdict.append("RSI is Optimal")
     else:
         verdict.append("RSI is Suboptimal")
-    if tech.get("MACD Histogram", 0) > 0:
+    
+    if to_number(tech.get("MACD Histogram", 0)) > 0:
         verdict.append("MACD Indicates Bullish Momentum")
     else:
         verdict.append("MACD Indicates Bearish/Neutral Momentum")
@@ -499,7 +510,7 @@ def final_verdict(fund, tech, extra, opts, thresholds):
     iv_value = opts.get("Average IV (Puts)")
     if iv_value is None:
         iv_value = np.inf
-    if iv_value <= thresholds["IV"]:
+    if to_number(iv_value) <= thresholds["IV"]:
         verdict.append("Options IV is Favorable")
     else:
         verdict.append("Options IV is High")
@@ -511,6 +522,7 @@ def final_verdict(fund, tech, extra, opts, thresholds):
     final_str = "Good Candidate for Selling Puts" if favorable_count >= 5 else "Not Suitable for Selling Puts"
     logger.debug("Final verdict: %s, details: %s", final_str, verdict)
     return final_str, verdict
+
 
 # ========== STREAMLIT UI ==========
 
