@@ -6,3 +6,4 @@ plotly
 yfinance
 nest_asyncio
 ib_insync
+kaleido
