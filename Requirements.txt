@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+requests
+plotly
+yfinance
+nest_asyncio
+ib_insync
