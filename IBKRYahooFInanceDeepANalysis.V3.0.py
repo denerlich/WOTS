@@ -28,11 +28,9 @@ pd.options.display.float_format = '{:.2f}'.format
 def connect_ibkr():
     """Connect to IBKR via ib_insync with a session-based clientId."""
     ib = IB()
-    
     # Generate a random client ID if not already generated
     if "ibkrClientId" not in st.session_state:
         st.session_state["ibkrClientId"] = random.randint(1000, 9999)
-    
     ib.connect("127.0.0.1", 7496, clientId=st.session_state["ibkrClientId"])
     logger.debug("Connected to IBKR")
     return ib
@@ -187,7 +185,6 @@ def get_fundamental_data(ticker):
     # Fallback using FMP ratios
     fmp_ratios = fetch_fmp_ratios(ticker)
     logger.debug("Using FMP ratios fallback: %s", fmp_ratios)
-
     for key in ["Debt-to-Equity Ratio", "Current Ratio", "Return on Equity (%)"]:
         if is_missing(fundamentals[key]) and not is_missing(fmp_ratios.get(key)):
             fundamentals[key] = fmp_ratios[key]
@@ -196,13 +193,12 @@ def get_fundamental_data(ticker):
     # Fallback for Free Cash Flow using FMP key metrics
     fmp_key_metrics = fetch_fmp_key_metrics(ticker)
     logger.debug("Using FMP key metrics fallback: %s", fmp_key_metrics)
-
     if is_missing(fundamentals["Free Cash Flow"]):
         if not is_missing(fmp_key_metrics.get("Free Cash Flow")):
             fundamentals["Free Cash Flow"] = fmp_key_metrics["Free Cash Flow"]
             logger.info(f"Filled Free Cash Flow from FMP key metrics: {fundamentals['Free Cash Flow']}")
         else:
-            fundamentals["Free Cash Flow"] = np.nan  # Explicitly setting NaN if missing from all sources
+            fundamentals["Free Cash Flow"] = np.nan
 
     # Fallback using Alpha Vantage for remaining fields
     alpha_ratios = fetch_alpha_vantage_overview(ticker)
@@ -221,12 +217,9 @@ def get_fundamental_data(ticker):
         logger.debug("Filled PEG Ratio from Alpha Vantage: %s", fundamentals["PEG Ratio"])
 
     logger.info("Final fundamental data after fallbacks: %s", fundamentals)
-
-    # Final cleanup: replace any remaining NaN values with "N/A"
     for key in fundamentals:
         if is_missing(fundamentals[key]):
             fundamentals[key] = "N/A"
-
     logger.info("Final cleaned fundamental data: %s", fundamentals)
     return fundamentals
 
@@ -242,12 +235,10 @@ def calculate_fundamentals(ticker_obj):
         st.error(f"Error retrieving fundamental data: {e}")
         logger.error("Error retrieving fundamental data: %s", e)
         return {}
-    
     try:
         latest_bs = bs.iloc[:, 0]
     except Exception:
         latest_bs = pd.Series()
-
     total_liabilities = latest_bs.get('Total Liab', np.nan)
     shareholder_equity = latest_bs.get('Total Stockholder Equity', np.nan)
     debt_to_equity = (
@@ -255,7 +246,6 @@ def calculate_fundamentals(ticker_obj):
         if pd.notna(total_liabilities) and pd.notna(shareholder_equity) and shareholder_equity != 0
         else np.nan
     )
-
     current_assets = latest_bs.get('Total Current Assets', np.nan)
     current_liabilities = latest_bs.get('Total Current Liabilities', np.nan)
     current_ratio = (
@@ -263,7 +253,6 @@ def calculate_fundamentals(ticker_obj):
         if pd.notna(current_assets) and pd.notna(current_liabilities) and current_liabilities != 0
         else np.nan
     )
-
     try:
         latest_cf = cf.iloc[:, 0]
         operating_cf = latest_cf.get("Total Cash From Operating Activities", np.nan)
@@ -275,7 +264,6 @@ def calculate_fundamentals(ticker_obj):
         )
     except Exception:
         free_cash_flow = np.nan
-
     revenue_growth = np.nan
     if fs.shape[1] >= 2:
         rev_rows = [row for row in fs.index if "Total Revenue" in row]
@@ -284,7 +272,6 @@ def calculate_fundamentals(ticker_obj):
             previous_revenue = fs.loc[rev_rows[0], fs.columns[1]]
             if pd.notna(latest_revenue) and pd.notna(previous_revenue) and previous_revenue != 0:
                 revenue_growth = ((latest_revenue - previous_revenue) / previous_revenue) * 100
-
     net_income = np.nan
     total_revenue = np.nan
     for row in fs.index:
@@ -302,7 +289,6 @@ def calculate_fundamentals(ticker_obj):
         if pd.notna(net_income) and pd.notna(shareholder_equity) and shareholder_equity != 0
         else np.nan
     )
-
     fundamentals = {
         "Debt-to-Equity Ratio": debt_to_equity,
         "Current Ratio": current_ratio,
@@ -531,6 +517,9 @@ def final_verdict(fund, tech, extra, opts, thresholds):
 st.set_page_config(page_title="Options Wheel Trade Checker", layout="wide")
 st.title("Options Wheel Trade Stock Assessment (IBKR + Fallback)")
 
+# Add a checkbox to determine if IBKR should be used.
+use_ibkr = st.sidebar.checkbox("Use IBKR (Local Only)?", value=False)
+
 st.sidebar.header("Adjust Thresholds (Click on '?' for details)")
 de_threshold = st.sidebar.number_input("Max Debt-to-Equity Ratio", min_value=0.0, value=0.5, step=0.1,
                                        help="Favorable if debt-to-equity ratio is below this value.")
@@ -562,34 +551,41 @@ run_button = st.button("Run Analysis")
 
 if run_button and ticker_input:
     ticker = ticker_input.upper()
-    ib = connect_ibkr()
     
-    with st.spinner("Fetching data from IBKR..."):
-        ibkr_hist = fetch_ibkr_stock_data(ib, ticker, duration='1 Y')
-    
-    if ibkr_hist is not None and not ibkr_hist.empty:
-        hist = ibkr_hist
-        st.success("Successfully retrieved historical data from IBKR.")
+    if use_ibkr:
+        # Use IBKR data if the checkbox is checked
+        ib = connect_ibkr()
+        with st.spinner("Fetching data from IBKR..."):
+            ibkr_hist = fetch_ibkr_stock_data(ib, ticker, duration='1 Y')
+        if ibkr_hist is not None and not ibkr_hist.empty:
+            hist = ibkr_hist
+            st.success("Successfully retrieved historical data from IBKR.")
+        else:
+            st.warning("IBKR data not available. Falling back to Yahoo Finance.")
+            yfa = yf.Ticker(ticker)
+            hist = yfa.history(period="1y")
+        with st.spinner("Fetching options data from IBKR..."):
+            options_data = calculate_options_indicators_ibkr(ib, ticker)
+        ib.disconnect()
     else:
-        st.warning("IBKR data not available. Falling back to Yahoo Finance.")
+        # Skip IBKR; use Yahoo Finance data and placeholders for IBKR-specific fields.
+        st.info("Skipping IBKR. Using Yahoo Finance fallback data.")
         yfa = yf.Ticker(ticker)
         hist = yfa.history(period="1y")
-
+        options_data = {
+            "Options Expiration": "N/A",
+            "Average IV (Puts)": None,
+            "Average IV (Calls)": None
+        }
+    
     with st.spinner("Fetching fundamentals..."):
         fundamentals_fallback = get_fundamental_data(ticker)
-        yfa = yf.Ticker(ticker)
         adv_fund = calculate_fundamentals(yfa)
         adv_fund_extra = get_extra_fundamentals(yfa)
     
     with st.spinner("Analyzing technicals..."):
         technicals = calculate_technical_indicators(hist)
     
-    with st.spinner("Fetching options data from IBKR..."):
-        options_data = calculate_options_indicators_ibkr(ib, ticker)
-    
-    # After all IBKR data calls complete, disconnect from IBKR
-    ib.disconnect()
-
     # Combine fundamentals from fallback and advanced
     combined_fundamentals = {}
     for key in set(fundamentals_fallback.keys()).union(adv_fund.keys()):
